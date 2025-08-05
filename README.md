@@ -1,1 +1,2 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/W7W0BRJMB)
+You can find the images used [here](https://www.flaticon.com/free-icon/floppy-disk_7223217), [here](https://www.flaticon.com/free-icon/history_5582356?term=restore&page=1&position=18&origin=search&related_id=5582356), and [here](https://www.flaticon.com/free-icon/setting_2040510?term=settings&page=1&position=48&origin=search&related_id=2040510)
