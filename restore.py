@@ -1,5 +1,4 @@
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import QMessageBox
 from pathlib import Path
 import shutil
 import zipfile
@@ -12,65 +11,64 @@ class RestoreWorker(QThread):
     progress_signal = Signal(int)
     max_signal = Signal(int)
     done_signal = Signal()
-    confirm_restore_signal = Signal() 
+    request_confirmation_signal = Signal()
+    confirmation_result_signal = Signal(bool)
 
     def __init__(self, dialog, zip_file_path):
         super().__init__()
         self.dialog = dialog
         self.zip_file_path = Path(zip_file_path)
         self.cancel_requested = False
-        self.user_confirmed = False
+        self.user_confirmed = None
 
         self.log_signal.connect(dialog.log)
         self.progress_signal.connect(dialog.update_progress)
         self.max_signal.connect(dialog.set_max)
         self.done_signal.connect(self.on_done)
-
-        self.confirm_restore_signal.connect(self.ask_confirmation)
+        self.confirmation_result_signal.connect(self.set_confirmation_result)
 
     def run(self):
+        temp_extract_folder = APPDATA_DIR / "temp_sims4_restore"
         try:
             self.log("Starting restore...")
 
-            temp_extract_folder = APPDATA_DIR / "temp_sims4_restore"
             temp_extract_folder.mkdir(exist_ok=True)
 
             with zipfile.ZipFile(self.zip_file_path, 'r') as zipf:
                 zip_list = zipf.infolist()
                 self.progress_signal.emit(0)
                 self.max_signal.emit(len(zip_list))
-                step = 1
 
-                for item in zip_list:
+                for step, item in enumerate(zip_list, start=1):
                     if self.cancel_requested:
                         self.log("Restore cancelled during extraction.")
+                        self._cleanup_temp(temp_extract_folder)
                         return
 
                     zipf.extract(item, temp_extract_folder)
                     self.log(f"Extracted: {item.filename}")
                     self.progress_signal.emit(step)
-                    step += 1
 
             extracted_saves = temp_extract_folder / "saves"
             extracted_tray = temp_extract_folder / "Tray"
 
             if not extracted_saves.exists() and not extracted_tray.exists():
                 self.log("Restore zip is missing 'saves' and 'Tray'")
-                QMessageBox.critical(self.dialog, "Restore Error", "No saves or Tray folder found in backup!")
-                shutil.rmtree(temp_extract_folder, ignore_errors=True)
+                self._cleanup_temp(temp_extract_folder)
                 return
 
-            self.confirm_restore_signal.emit()
-            self.exec_confirm_loop()
+            self.request_confirmation_signal.emit()
+            while self.user_confirmed is None:
+                self.msleep(50)
 
             if not self.user_confirmed:
                 self.log("Restore cancelled by user.")
-                shutil.rmtree(temp_extract_folder, ignore_errors=True)
+                self._cleanup_temp(temp_extract_folder)
                 return
 
             if self.cancel_requested:
                 self.log("Restore cancelled before file copy.")
-                shutil.rmtree(temp_extract_folder, ignore_errors=True)
+                self._cleanup_temp(temp_extract_folder)
                 return
 
             sims4_path = get_sims4_folder()
@@ -84,32 +82,28 @@ class RestoreWorker(QThread):
                 shutil.copytree(extracted_tray, dest, dirs_exist_ok=True)
                 self.log(f"Restored Tray to: {dest}")
 
-            shutil.rmtree(temp_extract_folder, ignore_errors=True)
+            self._cleanup_temp(temp_extract_folder)
             self.log("Restore complete.")
             self.done_signal.emit()
 
         except Exception as e:
             self.log(f"[ERROR] Restore failed: {e}")
+            self._cleanup_temp(temp_extract_folder)
 
-    def exec_confirm_loop(self):
-        from time import sleep
-        while self.user_confirmed is False and not hasattr(self, "_confirm_answered"):
-            sleep(0.05)
+    def _cleanup_temp(self, folder_path):
+        try:
+            if folder_path.exists():
+                shutil.rmtree(folder_path, ignore_errors=True)
+                self.log("Temporary restore folder cleaned.")
+        except Exception as e:
+            self.log(f"[ERROR] Failed to clean temp folder: {e}")
 
-    def ask_confirmation(self):
-        confirm = QMessageBox.question(
-            self.dialog,
-            "Confirm Restore",
-            "⚠️ This will overwrite your current Sims 4 saves and Tray files.\n\n"
-            "Are you sure you want to continue?"
-        )
-        self.user_confirmed = (confirm == QMessageBox.Yes)
-        self._confirm_answered = True
+    def set_confirmation_result(self, result: bool):
+        self.user_confirmed = result
 
     def log(self, message):
         self.log_signal.emit(message)
         write_log_file(message)
 
     def on_done(self):
-        QMessageBox.information(self.dialog, "Restore Complete", "Sims 4 data has been restored.")
         self.dialog.accept()

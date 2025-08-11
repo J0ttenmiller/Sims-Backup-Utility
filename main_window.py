@@ -1,5 +1,7 @@
 import sys
+import threading
 from pathlib import Path
+import requests
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtWidgets import (
     QMainWindow, QPushButton, QVBoxLayout, QWidget,
@@ -11,7 +13,15 @@ from progress_dialog import ProgressDialog
 from backup import BackupWorker
 from restore import RestoreWorker
 from settings_window import SettingsWindow
-from config_utils import get_default_backup_path
+from config_utils import (
+    get_default_backup_path,
+    get_update_available,
+    set_update_available,
+    get_last_installed_version
+)
+
+GITHUB_USER = "J0ttenmiller"
+GITHUB_REPO = "Sims-Backup-Utility"
 
 
 def resource_path(relative_path: str) -> Path:
@@ -21,6 +31,7 @@ def resource_path(relative_path: str) -> Path:
         base_path = Path(__file__).parent
     return base_path / relative_path
 
+
 class MainWindow(QMainWindow):
     def __init__(self, theme):
         super().__init__()
@@ -29,8 +40,12 @@ class MainWindow(QMainWindow):
         self.setFixedSize(300, 200)
 
         self.setWindowIcon(QIcon(str(resource_path("icon.ico"))))
-
         self.init_ui()
+
+        self.installed_version = get_last_installed_version()
+
+        if not get_update_available():
+            QtCore.QTimer.singleShot(2000, self.check_updates_silent)
 
     def init_ui(self):
         layout = QVBoxLayout()
@@ -47,7 +62,6 @@ class MainWindow(QMainWindow):
         self.settings_btn.setIcon(QIcon(str(resource_path("settings_icon.png"))))
 
         buttons = [self.backup_btn, self.restore_btn, self.settings_btn]
-
         for btn in buttons:
             btn.setIconSize(QtCore.QSize(20, 20))
             btn.setMinimumHeight(45)
@@ -70,14 +84,10 @@ class MainWindow(QMainWindow):
             QPushButton {{
                 background-color: {self.theme.button_bg};
                 color: {self.theme.button_fg};
-                font-size: 20px;
-                height: 32px;
+                font-size: 18px;
                 border-radius: 6px;
                 text-align: center;
                 padding: 2px 8px;
-            }}
-            QPushButton::menu-indicator {{
-                image: none;
             }}
             QPushButton:hover {{
                 background-color: {self.theme.button_active};
@@ -87,9 +97,22 @@ class MainWindow(QMainWindow):
     def apply_theme(self):
         self.setStyleSheet(f"background-color: {self.theme.bg}; color: {self.theme.fg};")
         self.centralWidget().setStyleSheet(f"background-color: {self.theme.bg}; color: {self.theme.fg};")
-
         for btn in [self.backup_btn, self.restore_btn, self.settings_btn]:
             btn.setStyleSheet(self.button_style())
+
+    def check_updates_silent(self):
+        def run_check():
+            try:
+                api_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/releases/latest"
+                r = requests.get(api_url, timeout=5)
+                r.raise_for_status()
+                latest_version = r.json().get("tag_name", "").lstrip("v")
+                if latest_version and latest_version != self.installed_version:
+                    set_update_available(True)
+            except Exception:
+                pass
+
+        threading.Thread(target=run_check, daemon=True).start()
 
     def run_backup(self):
         folder = get_default_backup_path()
@@ -103,16 +126,15 @@ class MainWindow(QMainWindow):
         dialog.worker = worker
 
         def backup_done():
-            QMessageBox.information(self, "Backup Complete", "Your Sims 4 backup has been created successfully.")
+            QMessageBox.information(self, "Backup Complete", "Your Sims backup has been created successfully.")
             dialog.accept()
 
         worker.done_signal.connect(backup_done)
-
         worker.start()
         dialog.exec()
 
     def run_restore(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Select Sims 4 Backup Zip", filter="Zip Files (*.zip)")
+        path, _ = QFileDialog.getOpenFileName(self, "Select Sims Backup Zip", filter="Zip Files (*.zip)")
         if not path:
             return
 
@@ -120,12 +142,45 @@ class MainWindow(QMainWindow):
         worker = RestoreWorker(dialog, path)
         dialog.worker = worker
 
+        confirm_box_ref = {"box": None}
+
+        def cancel_restore():
+            worker.cancel_requested = True
+            if confirm_box_ref["box"] is not None and confirm_box_ref["box"].isVisible():
+                confirm_box_ref["box"].done(QMessageBox.No)
+            dialog.close()
+
+        dialog.cancel_btn.clicked.disconnect()
+        dialog.cancel_btn.clicked.connect(cancel_restore)
+
+        def on_confirm_required():
+            if worker.cancel_requested:
+                return
+            msg = (
+                "⚠️ This will overwrite your current Sims 4 saves and Tray files.\n\n"
+                "Are you sure you want to continue?"
+            )
+            confirm_box = QMessageBox(self)
+            confirm_box.setWindowTitle("Confirm Restore")
+            confirm_box.setText(msg)
+            confirm_box.setIcon(QMessageBox.Warning)
+            confirm_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            confirm_box_ref["box"] = confirm_box
+            reply = confirm_box.exec()
+
+            if hasattr(worker, "confirmation_result_signal"):
+                worker.confirmation_result_signal.emit(reply == QMessageBox.Yes)
+            else:
+                worker.user_confirmed = (reply == QMessageBox.Yes)
+
         def restore_done():
-            QMessageBox.information(self, "Restore Complete", "Your Sims 4 saves have been restored successfully.")
+            QMessageBox.information(self, "Restore Complete", "Your Sims saves have been restored successfully.")
             dialog.accept()
 
-        worker.done_signal.connect(restore_done)
+        if hasattr(worker, "request_confirmation_signal"):
+            worker.request_confirmation_signal.connect(on_confirm_required)
 
+        worker.done_signal.connect(restore_done)
         worker.start()
         dialog.exec()
 

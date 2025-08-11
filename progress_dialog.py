@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QLabel, QProgressBar, QPushButton, QPlainTextEdit, QGraphicsOpacityEffect
+    QDialog, QVBoxLayout, QLabel, QProgressBar, QPushButton,
+    QPlainTextEdit, QGraphicsOpacityEffect
 )
 from PySide6.QtCore import Qt, QPropertyAnimation, QSize, QParallelAnimationGroup
 
@@ -28,50 +29,42 @@ class ProgressDialog(QDialog):
         layout.addWidget(self.percent_label)
 
         self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.clicked.connect(self.cancel)
         self.cancel_btn.setStyleSheet(self.button_style())
+        self.cancel_btn.clicked.connect(self.cancel)
         layout.addWidget(self.cancel_btn)
 
         self.toggle_btn = QPushButton("Show Details ▼")
-        self.toggle_btn.clicked.connect(self.toggle_details)
         self.toggle_btn.setStyleSheet(self.button_style())
+        self.toggle_btn.clicked.connect(self.toggle_details)
         layout.addWidget(self.toggle_btn)
 
-        self.details_box = QPlainTextEdit()
-        self.details_box.setReadOnly(True)
+        self.details_box = QPlainTextEdit(readOnly=True)
         self.details_box.setStyleSheet(
             "background-color: #111; color: white;" if theme.mode == "dark"
             else "background-color: #fff; color: black;"
         )
+        self.details_box.setMinimumHeight(200)
         self.details_box.hide()
 
-        self.details_opacity = QGraphicsOpacityEffect()
+        self.details_opacity = QGraphicsOpacityEffect(self.details_box)
         self.details_box.setGraphicsEffect(self.details_opacity)
         self.details_opacity.setOpacity(0)
 
-        self.details_box.setMinimumHeight(200)
         layout.addWidget(self.details_box)
         layout.setStretchFactor(self.details_box, 1)
 
         self.setLayout(layout)
 
-        self._anim_group = None
         self.worker = None
         self.details_visible = False
+        self._anim_group = None
+        self._last_log_message = None
 
-        self.details_box.setVisible(False)
         self.setMinimumSize(400, self.sizeHint().height())
         self.resize(400, self.sizeHint().height())
 
-    def get_collapsed_height(self):
-        self.details_box.setVisible(False)
-        inner = self.sizeHint().height()
-        frame_overhead = self.frameGeometry().height() - self.geometry().height()
-        self.details_box.setVisible(self.details_visible)
-        return inner + frame_overhead
-
-    def get_expanded_height(self):
-        self.details_box.setVisible(True)
+    def _calc_height_with_details(self, visible: bool) -> int:
+        self.details_box.setVisible(visible)
         inner = self.sizeHint().height()
         frame_overhead = self.frameGeometry().height() - self.geometry().height()
         self.details_box.setVisible(self.details_visible)
@@ -79,12 +72,10 @@ class ProgressDialog(QDialog):
 
     def toggle_details(self):
         self.details_visible = not self.details_visible
-
-        collapsed_height = self.get_collapsed_height()
-        expanded_height = self.get_expanded_height()
+        collapsed_height = self._calc_height_with_details(False)
+        expanded_height = self._calc_height_with_details(True)
 
         target_height = expanded_height if self.details_visible else collapsed_height
-
         target_height = max(target_height, self.minimumHeight())
 
         if not self.details_visible:
@@ -95,11 +86,14 @@ class ProgressDialog(QDialog):
         if self.details_visible:
             self.details_box.show()
 
-        anim_group = QParallelAnimationGroup()
+        if self._anim_group:
+            self._anim_group.stop()
+
+        anim_group = QParallelAnimationGroup(self)
 
         anim_resize = QPropertyAnimation(self, b"size")
         anim_resize.setDuration(250)
-        anim_resize.setStartValue(QSize(self.width(), max(self.height(), self.minimumHeight())))
+        anim_resize.setStartValue(QSize(self.width(), self.height()))
         anim_resize.setEndValue(QSize(self.width(), target_height))
         anim_group.addAnimation(anim_resize)
 
@@ -113,17 +107,12 @@ class ProgressDialog(QDialog):
             anim_fade.setStartValue(1)
             anim_fade.setEndValue(0)
             self.toggle_btn.setText("Show Details ▼")
-
-            def hide_and_restore():
-                self.details_box.hide()
-                self.setMinimumHeight(collapsed_height)
-            anim_group.finished.connect(hide_and_restore)
+            anim_group.finished.connect(lambda: self.details_box.hide())
 
         anim_group.addAnimation(anim_fade)
 
         anim_group.start()
         self._anim_group = anim_group
-
         self.log_label.setVisible(not self.details_visible)
 
     def progress_bar_style(self):
@@ -139,18 +128,17 @@ class ProgressDialog(QDialog):
                     width: 20px;
                 }
             """
-        else:
-            return """
-                QProgressBar {
-                    border: 2px solid #aaa;
-                    border-radius: 5px;
-                    background-color: #eee;
-                }
-                QProgressBar::chunk {
-                    background-color: #2196f3;
-                    width: 20px;
-                }
-            """
+        return """
+            QProgressBar {
+                border: 2px solid #aaa;
+                border-radius: 5px;
+                background-color: #eee;
+            }
+            QProgressBar::chunk {
+                background-color: #2196f3;
+                width: 20px;
+            }
+        """
 
     def button_style(self):
         return f"""
@@ -166,20 +154,24 @@ class ProgressDialog(QDialog):
             }}
         """
 
-    def log(self, message):
-        self.log_label.setText(message)
-        self.details_box.appendPlainText(message)
+    def log(self, message: str):
+        if message != self._last_log_message:
+            self.log_label.setText(message)
+            self.details_box.appendPlainText(message)
+            self._last_log_message = message
 
-    def update_progress(self, value):
+    def update_progress(self, value: int):
         self.progress_bar.setValue(value)
         max_val = self.progress_bar.maximum() or 1
         percent = int((value / max_val) * 100)
         self.percent_label.setText(f"{percent}%")
 
-    def set_max(self, value):
+    def set_max(self, value: int):
         self.progress_bar.setMaximum(value)
 
     def cancel(self):
-        if self.worker:
+        if self.worker and hasattr(self.worker, "request_cancel"):
+            self.worker.request_cancel()
+        elif self.worker:
             self.worker.cancel_requested = True
         self.close()
