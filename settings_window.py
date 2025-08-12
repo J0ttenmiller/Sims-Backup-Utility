@@ -74,7 +74,6 @@ class SettingsWindow(QDialog):
         self.refresh_update_status()
 
     def button_style(self):
-        """Blue in light mode, green in dark mode."""
         if self.theme.mode == "light":
             bg = "#2196F3"
             hover = "#1976D2"
@@ -131,9 +130,7 @@ class SettingsWindow(QDialog):
             self.update_btn.setStyleSheet(self.button_style())
 
     def run_update_check(self):
-        check_for_updates_async(self, callback=self.refresh_update_status)
-        set_update_available(False)
-        self.refresh_update_status()
+        check_for_updates_async(self, finished_callback=self.refresh_update_status)
 
     def save_settings(self):
         val = self.max_combo.currentText()

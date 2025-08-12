@@ -86,13 +86,16 @@ def write_log_file(message: str):
     with open(LOGFILE_PATH, "a", encoding="utf-8") as f:
         f.write(f"{timestamp}] {message}\n")
 
-def get_update_available():
-    return get_config_value("General", "update_available", "false").lower() == "true"
+# --- Version and update availability helpers ---
+
+def get_update_available() -> bool:
+    val = get_config_value("General", "update_available", "false")
+    return val.lower() == "true"
 
 def set_update_available(flag: bool):
     set_config_value("General", "update_available", str(flag).lower())
 
-def get_last_installed_version():
+def get_last_installed_version() -> str:
     return get_config_value("General", "last_installed_version", "1.0.0")
 
 def set_last_installed_version(version: str):
