@@ -1,30 +1,84 @@
-import platform
-import ctypes.wintypes
-from pathlib import Path
 import os
+from pathlib import Path
 
-def get_appdata_folder():
-    local_appdata = os.getenv("LOCALAPPDATA")
-    app_folder = Path(local_appdata) / "Sims4BackupUtility"
-    app_folder.mkdir(parents=True, exist_ok=True)
-    return app_folder
+APPDATA_DIR = Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "SimsBackupUtility"
 
-APPDATA_DIR = get_appdata_folder()
 
-def get_documents_folder():
-    system = platform.system()
+def get_documents_dirs():
+    dirs = []
+    home = Path.home()
+    docs = home / "Documents"
+    if docs.exists():
+        dirs.append(docs)
 
-    if system == "Windows":
-        CSIDL_PERSONAL = 5
-        SHGFP_TYPE_CURRENT = 0
-        buf = ctypes.create_unicode_buffer(ctypes.wintypes.MAX_PATH)
-        ctypes.windll.shell32.SHGetFolderPathW(None, CSIDL_PERSONAL, None, SHGFP_TYPE_CURRENT, buf)
-        return Path(buf.value)
-    elif system in {"Darwin", "Linux"}:
-        return Path.home() / "Documents"
-    else:
-        raise RuntimeError(f"Unsupported OS: {system}")
+    onedrive = os.getenv("OneDrive")
+    if onedrive:
+        od_docs = Path(onedrive) / "Documents"
+        if od_docs.exists():
+            dirs.append(od_docs)
+
+    od_consumer = home / "OneDrive" / "Documents"
+    if od_consumer.exists() and od_consumer not in dirs:
+        dirs.append(od_consumer)
+
+    out = []
+    for d in dirs:
+        if d not in out:
+            out.append(d)
+    return out
+
+
+def _try_candidates(subpaths):
+    for base in get_documents_dirs():
+        for sub in subpaths:
+            candidate = base / sub
+            if candidate.exists():
+                return candidate
+    bases = get_documents_dirs()
+    if bases:
+        return bases[0] / subpaths[0]
+    return Path.home() / "Documents" / subpaths[0]
+
 
 def get_sims4_folder():
-    docs = get_documents_folder()
-    return docs / "Electronic Arts" / "The Sims 4"
+    return _try_candidates([
+        Path("Electronic Arts") / "The Sims 4",
+        Path("The Sims 4"),
+    ])
+
+
+def get_sims3_folder():
+    return _try_candidates([
+        Path("Electronic Arts") / "The Sims 3",
+        Path("The Sims 3"),
+    ])
+
+
+def get_sims_medieval_folder():
+    return _try_candidates([
+        Path("Electronic Arts") / "The Sims Medieval",
+        Path("The Sims Medieval"),
+    ])
+
+
+def get_mysims_folder():
+    return Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "Electronic Arts" / "MySims"
+
+
+def get_mysims_kingdom_folder():
+    return Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "Electronic Arts" / "MySims Kingdom"
+
+
+def get_game_folder(game_name: str) -> Path:
+    g = game_name.strip().lower()
+    if g == "sims 4":
+        return get_sims4_folder()
+    if g == "sims 3":
+        return get_sims3_folder()
+    if g == "sims medieval":
+        return get_sims_medieval_folder()
+    if g == "mysims":
+        return get_mysims_folder()
+    if g == "mysims kingdom":
+        return get_mysims_kingdom_folder()
+    return get_sims4_folder()

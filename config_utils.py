@@ -3,8 +3,11 @@ from pathlib import Path
 from datetime import datetime
 from paths import APPDATA_DIR
 
+
 CONFIG_PATH = APPDATA_DIR / "config.ini"
-LOGFILE_PATH = APPDATA_DIR / "sims_backup_utility_log.txt"
+LOGFILE_PATH = APPDATA_DIR / "sbu_log.txt"
+
+GAMES = ["Sims 4", "Sims 3", "Sims Medieval", "MySims", "MySims Kingdom"]
 
 
 def ensure_config():
@@ -12,27 +15,31 @@ def ensure_config():
         APPDATA_DIR.mkdir(parents=True, exist_ok=True)
         config = configparser.ConfigParser()
         config["Settings"] = {
-            "last_backup_path": "",
-            "default_backup_path": "",
             "max_backups": "5",
-            "theme": "dark"
+            "theme": "dark",
+            "last_selected_game": "Sims 4",
         }
+        for g in GAMES:
+            key = game_key(g)
+            config[f"Path:{key}"] = {
+                "default_backup_path": ""
+            }
         config["General"] = {
             "update_available": "false",
             "last_installed_version": "1.0.0"
         }
-        with open(CONFIG_PATH, "w") as f:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             config.write(f)
 
 def get_config():
     ensure_config()
     config = configparser.ConfigParser()
     if CONFIG_PATH.exists():
-        config.read(CONFIG_PATH)
+        config.read(CONFIG_PATH, encoding="utf-8")
     return config
 
 def save_config(config):
-    with open(CONFIG_PATH, "w") as f:
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         config.write(f)
 
 def get_config_value(section, key, default=""):
@@ -46,23 +53,11 @@ def set_config_value(section, key, value):
     config[section][key] = str(value)
     save_config(config)
 
-def get_last_backup_path():
-    return get_config_value("Settings", "last_backup_path", None)
-
-def save_last_backup_path(path: str):
-    set_config_value("Settings", "last_backup_path", path)
-
 def get_max_backups():
     return int(get_config_value("Settings", "max_backups", 5))
 
 def save_max_backups(value: int):
     set_config_value("Settings", "max_backups", str(value))
-
-def get_default_backup_path():
-    return get_config_value("Settings", "default_backup_path", None)
-
-def save_default_backup_path(path: str):
-    set_config_value("Settings", "default_backup_path", path)
 
 def get_theme_mode():
     return get_config_value("Settings", "theme", "dark")
@@ -70,33 +65,51 @@ def get_theme_mode():
 def save_theme_mode(mode: str):
     set_config_value("Settings", "theme", mode)
 
-def write_log_file(message: str):
-    APPDATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    today_prefix = datetime.now().strftime("[%Y-%m-%d")
-
-    if LOGFILE_PATH.exists():
-        with open(LOGFILE_PATH, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-        lines = [line for line in lines if line.startswith(today_prefix)]
-        with open(LOGFILE_PATH, "w", encoding="utf-8") as f:
-            f.writelines(lines)
-
-    timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
-    with open(LOGFILE_PATH, "a", encoding="utf-8") as f:
-        f.write(f"{timestamp}] {message}\n")
-
-# --- Version and update availability helpers ---
-
-def get_update_available() -> bool:
-    val = get_config_value("General", "update_available", "false")
-    return val.lower() == "true"
+def get_update_available():
+    return get_config_value("General", "update_available", "false").lower() == "true"
 
 def set_update_available(flag: bool):
     set_config_value("General", "update_available", str(flag).lower())
 
-def get_last_installed_version() -> str:
+def get_last_installed_version():
     return get_config_value("General", "last_installed_version", "1.0.0")
 
 def set_last_installed_version(version: str):
     set_config_value("General", "last_installed_version", version)
+
+def game_key(game_name: str) -> str:
+    return game_name.strip().lower().replace(" ", "_")
+
+def get_default_backup_path(game_name: str):
+    key = game_key(game_name)
+    return get_config_value(f"Path:{key}", "default_backup_path", None)
+
+def save_default_backup_path(game_name: str, path: str):
+    key = game_key(game_name)
+    set_config_value(f"Path:{key}", "default_backup_path", path)
+
+def get_last_selected_game():
+    return get_config_value("Settings", "last_selected_game", "Sims 4")
+
+def save_last_selected_game(game_name: str):
+    set_config_value("Settings", "last_selected_game", game_name)
+
+def write_log_file(message: str):
+    APPDATA_DIR.mkdir(parents=True, exist_ok=True)
+    now = datetime.now()
+    today_prefix = now.strftime("[%Y-%m-%d")
+    timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"[{timestamp}] {message}"
+
+    existing = []
+    if LOGFILE_PATH.exists():
+        with open(LOGFILE_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith(today_prefix):
+                    existing.append(line.rstrip("\n"))
+
+    existing.append(log_entry)
+
+    with open(LOGFILE_PATH, "w", encoding="utf-8") as f:
+        for line in existing:
+            f.write(line + "\n")

@@ -2,8 +2,18 @@ from PySide6.QtCore import QThread, Signal
 from pathlib import Path
 import shutil
 import zipfile
-from paths import get_sims4_folder, APPDATA_DIR
+
+from paths import get_game_folder, APPDATA_DIR
 from config_utils import write_log_file
+
+
+INCLUDE_MAP = {
+    "sims 4": ["saves", "Tray"],
+    "sims 3": ["Saves", "SavedSims"],
+    "sims medieval": ["Saves", "SavedSims"],
+    "mysims": ["SaveData1", "SaveData2", "SaveData3"],
+    "mysims kingdom": ["SaveData1", "SaveData2", "SaveData3"],
+}
 
 
 class RestoreWorker(QThread):
@@ -14,10 +24,12 @@ class RestoreWorker(QThread):
     request_confirmation_signal = Signal()
     confirmation_result_signal = Signal(bool)
 
-    def __init__(self, dialog, zip_file_path):
+    def __init__(self, dialog, zip_file_path, game_name: str):
         super().__init__()
         self.dialog = dialog
         self.zip_file_path = Path(zip_file_path)
+        self.game_name = game_name
+        self.game_key = self.game_name.strip().lower()
         self.cancel_requested = False
         self.user_confirmed = None
 
@@ -28,11 +40,11 @@ class RestoreWorker(QThread):
         self.confirmation_result_signal.connect(self.set_confirmation_result)
 
     def run(self):
-        temp_extract_folder = APPDATA_DIR / "temp_sims4_restore"
         try:
-            self.log("Starting restore...")
+            self.log(f"Starting restore for {self.game_name}...")
 
-            temp_extract_folder.mkdir(exist_ok=True)
+            temp_extract_folder = APPDATA_DIR / f"temp_restore_{self.game_key.replace(' ', '_')}"
+            temp_extract_folder.mkdir(parents=True, exist_ok=True)
 
             with zipfile.ZipFile(self.zip_file_path, 'r') as zipf:
                 zip_list = zipf.infolist()
@@ -42,20 +54,11 @@ class RestoreWorker(QThread):
                 for step, item in enumerate(zip_list, start=1):
                     if self.cancel_requested:
                         self.log("Restore cancelled during extraction.")
-                        self._cleanup_temp(temp_extract_folder)
+                        shutil.rmtree(temp_extract_folder, ignore_errors=True)
                         return
-
                     zipf.extract(item, temp_extract_folder)
                     self.log(f"Extracted: {item.filename}")
                     self.progress_signal.emit(step)
-
-            extracted_saves = temp_extract_folder / "saves"
-            extracted_tray = temp_extract_folder / "Tray"
-
-            if not extracted_saves.exists() and not extracted_tray.exists():
-                self.log("Restore zip is missing 'saves' and 'Tray'")
-                self._cleanup_temp(temp_extract_folder)
-                return
 
             self.request_confirmation_signal.emit()
             while self.user_confirmed is None:
@@ -63,40 +66,49 @@ class RestoreWorker(QThread):
 
             if not self.user_confirmed:
                 self.log("Restore cancelled by user.")
-                self._cleanup_temp(temp_extract_folder)
+                shutil.rmtree(temp_extract_folder, ignore_errors=True)
                 return
 
             if self.cancel_requested:
                 self.log("Restore cancelled before file copy.")
-                self._cleanup_temp(temp_extract_folder)
+                shutil.rmtree(temp_extract_folder, ignore_errors=True)
                 return
 
-            sims4_path = get_sims4_folder()
-            if extracted_saves.exists():
-                dest = sims4_path / "saves"
-                shutil.copytree(extracted_saves, dest, dirs_exist_ok=True)
-                self.log(f"Restored saves to: {dest}")
+            game_root = get_game_folder(self.game_name)
+            if not game_root.exists():
+                game_root.mkdir(parents=True, exist_ok=True)
 
-            if extracted_tray.exists():
-                dest = sims4_path / "Tray"
-                shutil.copytree(extracted_tray, dest, dirs_exist_ok=True)
-                self.log(f"Restored Tray to: {dest}")
+            include_dirs = INCLUDE_MAP.get(self.game_key, [])
+            restored_any = False
+            for sub in include_dirs:
+                src = temp_extract_folder / sub
+                dst = game_root / sub
+                if src.exists():
+                    if src.is_dir():
+                        shutil.copytree(src, dst, dirs_exist_ok=True)
+                    else:
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, dst)
+                    self.log(f"Restored: {dst.relative_to(game_root)}")
+                    restored_any = True
 
-            self._cleanup_temp(temp_extract_folder)
+            if not restored_any:
+                for item in temp_extract_folder.iterdir():
+                    src = item
+                    dst = game_root / item.name
+                    if src.is_dir():
+                        shutil.copytree(src, dst, dirs_exist_ok=True)
+                    else:
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, dst)
+                    self.log(f"Restored: {dst.relative_to(game_root)}")
+
+            shutil.rmtree(temp_extract_folder, ignore_errors=True)
             self.log("Restore complete.")
             self.done_signal.emit()
 
         except Exception as e:
             self.log(f"[ERROR] Restore failed: {e}")
-            self._cleanup_temp(temp_extract_folder)
-
-    def _cleanup_temp(self, folder_path):
-        try:
-            if folder_path.exists():
-                shutil.rmtree(folder_path, ignore_errors=True)
-                self.log("Temporary restore folder cleaned.")
-        except Exception as e:
-            self.log(f"[ERROR] Failed to clean temp folder: {e}")
 
     def set_confirmation_result(self, result: bool):
         self.user_confirmed = result

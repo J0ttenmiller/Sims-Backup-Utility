@@ -1,86 +1,108 @@
-from PySide6.QtWidgets import (
+from PySide6.QtWidgets import ( 
     QDialog, QLabel, QComboBox, QPushButton, QVBoxLayout, QHBoxLayout,
-    QMessageBox, QFileDialog
+    QMessageBox, QFileDialog, QGridLayout
 )
 from updater import check_for_updates_async
 from config_utils import (
     get_max_backups, save_max_backups,
-    save_default_backup_path, get_default_backup_path,
-    save_theme_mode,
+    get_default_backup_path, save_default_backup_path,
+    save_theme_mode, get_theme_mode,
     get_update_available, set_update_available,
-    get_last_installed_version
+    get_last_installed_version,
+    GAMES
 )
 
 
 class SettingsWindow(QDialog):
-    def __init__(self, theme):
+    def __init__(self, theme, main_window=None):
         super().__init__()
         self.theme = theme
+        self.main_window = main_window
         self.setWindowTitle("Settings")
-        self.setFixedSize(400, 260)
+        self.setFixedSize(460, 360)
         self.setStyleSheet(f"background-color: {theme.bg}; color: {theme.fg};")
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout()
-        layout.setSpacing(6)
+        layout.setContentsMargins(14, 10, 14, 12)
+        layout.setSpacing(8)
 
-        label = QLabel("Maximum number of backups to keep:")
-        label.setStyleSheet("margin-bottom: 2px;")
+        top = QVBoxLayout()
+        top.setSpacing(2)
+
+        l1 = QHBoxLayout()
+        l1.setSpacing(8)
+        lbl = QLabel("Maximum number of backups to keep:")
+        lbl.setStyleSheet("margin: 0;")
         self.max_combo = QComboBox()
         self.max_combo.addItems(["Unlimited"] + [str(i) for i in range(1, 100)])
-
         current = get_max_backups()
-        if current == 0:
-            self.max_combo.setCurrentText("Unlimited")
-        else:
-            self.max_combo.setCurrentText(str(current))
+        self.max_combo.setCurrentText("Unlimited" if current == 0 else str(current))
+        l1.addWidget(lbl)
+        l1.addWidget(self.max_combo, 1)
+        top.addLayout(l1)
 
-        hlayout1 = QHBoxLayout()
-        hlayout1.addWidget(label)
-        hlayout1.addWidget(self.max_combo)
-        layout.addLayout(hlayout1)
+        self.version_label = QLabel(f"Current Version: {get_last_installed_version()}")
+        self.version_label.setStyleSheet("font-size: 13px; margin: 0;")
+        top.addWidget(self.version_label)
 
-        self.version_label = QLabel()
-        self.version_label.setStyleSheet("font-size: 14px; margin-top: 4px; margin-bottom: 2px;")
-        layout.addWidget(self.version_label)
+        top.addWidget(QLabel("Per-game default backup folders:"))
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(4)
 
-        self.backup_path_label = QLabel(f"Backup folder: {get_default_backup_path() or 'Not set'}")
-        self.backup_path_label.setStyleSheet("margin-bottom: 4px;")
-        layout.addWidget(self.backup_path_label)
+        self.path_labels = {}
+        row = 0
+        for g in GAMES:
+            lab = QLabel(g + ":")
+            lab.setStyleSheet("margin: 0;")
+            grid.addWidget(lab, row, 0)
 
-        browse_btn = QPushButton("Browse for default backup folder")
-        browse_btn.setStyleSheet(self.button_style())
-        browse_btn.clicked.connect(self.choose_path)
-        layout.addWidget(browse_btn)
+            p = get_default_backup_path(g) or "Not set"
+            path_label = QLabel(p)
+            path_label.setStyleSheet("margin: 0;")
+            grid.addWidget(path_label, row, 1)
+            self.path_labels[g] = path_label
+
+            btn = QPushButton("Browse")
+            btn.setStyleSheet(self.button_style())
+            btn.clicked.connect(lambda _, game=g: self.choose_path(game))
+            grid.addWidget(btn, row, 2)
+            row += 1
+
+        top.addLayout(grid)
+        layout.addLayout(top)
 
         self.theme_btn = QPushButton(f"Switch to {'Light' if self.theme.mode == 'dark' else 'Dark'} Mode")
         self.theme_btn.setStyleSheet(self.button_style())
         self.theme_btn.clicked.connect(self.toggle_theme)
         layout.addWidget(self.theme_btn)
 
-        hlayout2 = QHBoxLayout()
+        row2 = QHBoxLayout()
+        row2.setSpacing(8)
+
         self.update_btn = QPushButton()
         self.update_btn.clicked.connect(self.run_update_check)
-        hlayout2.addWidget(self.update_btn)
+        row2.addWidget(self.update_btn)
 
         save_btn = QPushButton("Save")
         save_btn.setStyleSheet(self.button_style())
         save_btn.clicked.connect(self.save_settings)
-        hlayout2.addWidget(save_btn)
-        layout.addLayout(hlayout2)
+        row2.addWidget(save_btn)
+
+        layout.addLayout(row2)
 
         self.setLayout(layout)
         self.refresh_update_status()
 
     def button_style(self):
-        if self.theme.mode == "light":
-            bg = "#2196F3"
-            hover = "#1976D2"
+        if self.theme.mode == "dark":
+            bg = "#2e7d32"
+            hover = "#1b5e20"
         else:
-            bg = "#4CAF50"
-            hover = "#388E3C"
-
+            bg = "#1976d2"
+            hover = "#115293"
         return f"""
             QPushButton {{
                 background-color: {bg};
@@ -94,43 +116,50 @@ class SettingsWindow(QDialog):
             }}
         """
 
-    def choose_path(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Default Backup Folder")
+    def choose_path(self, game_name: str):
+        folder = QFileDialog.getExistingDirectory(self, f"Select Default Backup Folder for {game_name}")
         if folder:
-            save_default_backup_path(folder)
-            self.backup_path_label.setText(f"Backup folder: {folder}")
+            save_default_backup_path(game_name, folder)
+            self.path_labels[game_name].setText(folder)
 
     def toggle_theme(self):
         self.theme.toggle()
         save_theme_mode(self.theme.mode)
         self.setStyleSheet(f"background-color: {self.theme.bg}; color: {self.theme.fg};")
+        self.theme_btn.setStyleSheet(self.button_style())
         self.theme_btn.setText(f"Switch to {'Light' if self.theme.mode == 'dark' else 'Dark'} Mode")
         self.refresh_update_status()
 
     def refresh_update_status(self):
-        current_version = get_last_installed_version()
-        self.version_label.setText(f"Current Version: {current_version}")
-
         if get_update_available():
             self.update_btn.setText("Update Available!")
-            self.update_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #ff9800;
-                    color: white;
-                    font-size: 14px;
-                    border-radius: 4px;
-                    padding: 4px 8px;
-                }
-                QPushButton:hover {
-                    background-color: #f57c00;
-                }
-            """)
+            if self.theme.mode == "dark":
+                self.update_btn.setStyleSheet("""
+                    QPushButton { background-color: #ff9800; color: white; border-radius: 8px; height: 30px; }
+                    QPushButton:hover { background-color: #f57c00; }
+                """)
+            else:
+                self.update_btn.setStyleSheet("""
+                    QPushButton { background-color: #ff9800; color: white; border-radius: 8px; height: 30px; }
+                    QPushButton:hover { background-color: #ef6c00; }
+                """)
         else:
             self.update_btn.setText("Check for Updates")
             self.update_btn.setStyleSheet(self.button_style())
 
     def run_update_check(self):
-        check_for_updates_async(self, finished_callback=self.refresh_update_status)
+        def finished():
+            self.version_label.setText(f"Current Version: {get_last_installed_version()}")
+            self.refresh_update_status()
+            if self.main_window:
+                if get_update_available():
+                    self.main_window.show_settings_red_dot()
+                else:
+                    self.main_window.hide_settings_red_dot()
+
+        check_for_updates_async(self, finished_callback=finished)
+        set_update_available(False)
+        self.refresh_update_status()
 
     def save_settings(self):
         val = self.max_combo.currentText()
