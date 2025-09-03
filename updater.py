@@ -52,7 +52,6 @@ def install_update(parent, data, latest_version):
         latest_v = latest_version
         current_v = current_version
 
-    # Already latest
     if latest_v <= current_v:
         QMessageBox.information(parent, "No Updates", "You already have the latest version.")
         set_update_available(False)
@@ -60,7 +59,6 @@ def install_update(parent, data, latest_version):
             parent.hide_update_indicator()
         return
 
-    # Ask user
     reply = QMessageBox.question(
         parent,
         "Update Available",
@@ -71,7 +69,6 @@ def install_update(parent, data, latest_version):
     if reply != QMessageBox.Yes:
         return
 
-    # Find installer
     asset_url = None
     for asset in data.get("assets", []):
         if asset.get("name") == INSTALLER_FILENAME:
@@ -84,7 +81,6 @@ def install_update(parent, data, latest_version):
     temp_dir = tempfile.gettempdir()
     installer_path = os.path.join(temp_dir, INSTALLER_FILENAME)
 
-    # Download with progress bar
     progress = QProgressDialog("Downloading update...", "Cancel", 0, 100, parent)
     progress.setWindowTitle("Downloading Update")
     progress.setWindowModality(Qt.WindowModal)
@@ -115,7 +111,6 @@ def install_update(parent, data, latest_version):
         QMessageBox.warning(parent, "Download Error", str(e))
         return
 
-    # Mark update handled
     set_update_available(False)
     if hasattr(parent, "hide_update_indicator"):
         parent.hide_update_indicator()
@@ -175,7 +170,6 @@ def check_for_updates_async(parent=None, finished_callback=None, silent=False):
 
 
 def silent_update_check(parent=None, finished_callback=None):
-    """Run a background check without user prompt unless update exists."""
     check_for_updates_async(parent=parent, finished_callback=finished_callback, silent=True)
 
 

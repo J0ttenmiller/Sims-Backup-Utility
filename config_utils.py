@@ -113,3 +113,37 @@ def write_log_file(message: str):
     with open(LOGFILE_PATH, "w", encoding="utf-8") as f:
         for line in existing:
             f.write(line + "\n")
+
+def get_schedule_config():
+    config = get_config()
+    if "Schedule" not in config:
+        return None
+    mode = config["Schedule"].get("mode", "")
+    if mode == "interval":
+        return {"mode": "interval", "hours": config["Schedule"].getint("hours", 6)}
+    elif mode == "daily":
+        time_str = config["Schedule"].get("time", "12:00")
+        try:
+            h, m = map(int, time_str.split(":"))
+        except ValueError:
+            h, m = 12, 0
+        return {"mode": "daily", "time": (h, m)}
+    return None
+
+def save_schedule_config(schedule: dict):
+    config = get_config()
+    if "Schedule" not in config:
+        config["Schedule"] = {}
+    config["Schedule"]["mode"] = schedule["mode"]
+    if schedule["mode"] == "interval":
+        config["Schedule"]["hours"] = str(schedule["hours"])
+    elif schedule["mode"] == "daily":
+        h, m = schedule["time"]
+        config["Schedule"]["time"] = f"{h:02d}:{m:02d}"
+    save_config(config)
+
+def clear_schedule_config():
+    config = get_config()
+    if "Schedule" in config:
+        config.remove_section("Schedule")
+        save_config(config)

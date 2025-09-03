@@ -5,7 +5,10 @@ from updater import sync_stored_version_on_startup, silent_update_check
 from version import __version__
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QIcon
+from PySide6.QtCore import QTimer
 import sys
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
@@ -23,5 +26,10 @@ if __name__ == "__main__":
 
     silent_update_check(finished_callback=finished)
 
-    window.show()
+    minimized = "--minimized" in sys.argv
+    if minimized:
+        QTimer.singleShot(100, window.hide)
+    else:
+        window.show()
+
     sys.exit(app.exec())

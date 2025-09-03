@@ -1,7 +1,11 @@
-from PySide6.QtWidgets import ( 
+from PySide6.QtWidgets import (
     QDialog, QLabel, QComboBox, QPushButton, QVBoxLayout, QHBoxLayout,
-    QMessageBox, QFileDialog, QGridLayout
+    QMessageBox, QFileDialog, QGridLayout, QCheckBox
 )
+from PySide6.QtCore import QSettings
+from pathlib import Path
+import sys
+
 from updater import check_for_updates_async
 from config_utils import (
     get_max_backups, save_max_backups,
@@ -19,7 +23,7 @@ class SettingsWindow(QDialog):
         self.theme = theme
         self.main_window = main_window
         self.setWindowTitle("Settings")
-        self.setFixedSize(460, 360)
+        self.setFixedSize(460, 400)
         self.setStyleSheet(f"background-color: {theme.bg}; color: {theme.fg};")
         self.init_ui()
 
@@ -27,6 +31,12 @@ class SettingsWindow(QDialog):
         layout = QVBoxLayout()
         layout.setContentsMargins(14, 10, 14, 12)
         layout.setSpacing(8)
+
+        self.startup_checkbox = QCheckBox("Run at Startup")
+        self.startup_checkbox.setChecked(self.is_startup_enabled())
+        self.startup_checkbox.toggled.connect(self.set_startup_enabled)
+        self.apply_checkbox_style()
+        layout.addWidget(self.startup_checkbox)
 
         top = QVBoxLayout()
         top.setSpacing(2)
@@ -116,6 +126,33 @@ class SettingsWindow(QDialog):
             }}
         """
 
+    def apply_checkbox_style(self):
+        """Apply styles so checkbox fills instead of showing a checkmark,
+        with rounded edges and theme-based colors."""
+        if self.theme.mode == "dark":
+            fill = "#2e7d32" 
+        else:
+            fill = "#1976d2"
+
+        self.startup_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                color: {self.theme.fg};
+                font-size: 14px;
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                border: 1px solid {self.theme.fg};
+                border-radius: 4px;
+                background: transparent;
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {fill};
+                border: 1px solid {fill};
+                border-radius: 4px;
+            }}
+        """)
+
     def choose_path(self, game_name: str):
         folder = QFileDialog.getExistingDirectory(self, f"Select Default Backup Folder for {game_name}")
         if folder:
@@ -128,21 +165,16 @@ class SettingsWindow(QDialog):
         self.setStyleSheet(f"background-color: {self.theme.bg}; color: {self.theme.fg};")
         self.theme_btn.setStyleSheet(self.button_style())
         self.theme_btn.setText(f"Switch to {'Light' if self.theme.mode == 'dark' else 'Dark'} Mode")
+        self.apply_checkbox_style()
         self.refresh_update_status()
 
     def refresh_update_status(self):
         if get_update_available():
             self.update_btn.setText("Update Available!")
-            if self.theme.mode == "dark":
-                self.update_btn.setStyleSheet("""
-                    QPushButton { background-color: #ff9800; color: white; border-radius: 8px; height: 30px; }
-                    QPushButton:hover { background-color: #f57c00; }
-                """)
-            else:
-                self.update_btn.setStyleSheet("""
-                    QPushButton { background-color: #ff9800; color: white; border-radius: 8px; height: 30px; }
-                    QPushButton:hover { background-color: #ef6c00; }
-                """)
+            self.update_btn.setStyleSheet("""
+                QPushButton { background-color: #ff9800; color: white; border-radius: 8px; height: 30px; }
+                QPushButton:hover { background-color: #f57c00; }
+            """)
         else:
             self.update_btn.setText("Check for Updates")
             self.update_btn.setStyleSheet(self.button_style())
@@ -161,11 +193,30 @@ class SettingsWindow(QDialog):
         set_update_available(False)
         self.refresh_update_status()
 
+    def is_startup_enabled(self) -> bool:
+        settings = QSettings("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                             QSettings.NativeFormat)
+        return settings.contains("SimsBackupUtility")
+
+    def set_startup_enabled(self, enable: bool):
+        settings = QSettings("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                             QSettings.NativeFormat)
+        exe = sys.executable
+        if enable:
+            if getattr(sys, 'frozen', False):
+                exe = Path(sys.executable).as_posix()
+            else:
+                exe = Path(sys.argv[0]).resolve().as_posix()
+            settings.setValue("SimsBackupUtility", f"\"{exe}\" --minimized")
+        else:
+            settings.remove("SimsBackupUtility")
+
     def save_settings(self):
         val = self.max_combo.currentText()
         if val == "Unlimited":
             save_max_backups(0)
         else:
             save_max_backups(int(val))
+
         QMessageBox.information(self, "Settings Saved", "Settings have been saved.")
         self.accept()

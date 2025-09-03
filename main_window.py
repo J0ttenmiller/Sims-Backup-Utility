@@ -5,7 +5,7 @@ import requests
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtWidgets import (
     QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout, QWidget,
-    QFileDialog, QDialog, QMessageBox, QComboBox, QLabel
+    QFileDialog, QDialog, QMessageBox, QComboBox, QLabel, QSystemTrayIcon, QMenu
 )
 from PySide6.QtGui import QIcon, QPainter, QColor
 
@@ -13,11 +13,13 @@ from progress_dialog import ProgressDialog
 from backup import BackupWorker
 from restore import RestoreWorker
 from settings_window import SettingsWindow
+from schedule_dialog import ScheduleDialog
 from config_utils import (
     get_default_backup_path, save_default_backup_path,
     get_update_available, set_update_available,
     get_last_installed_version,
     get_last_selected_game, save_last_selected_game,
+    get_schedule_config, save_schedule_config,
 )
 
 GITHUB_USER = "J0ttenmiller"
@@ -32,17 +34,30 @@ def resource_path(relative_path: str) -> Path:
         base_path = Path(__file__).parent
     return base_path / relative_path
 
+
 class MainWindow(QMainWindow):
     def __init__(self, theme):
         super().__init__()
         self.theme = theme
         self.setWindowTitle("Sims Backup Utility")
-        self.setFixedSize(320, 230)
+        self.setFixedSize(320, 280)
 
         self.setWindowIcon(QIcon(str(resource_path("icon.ico"))))
         self.installed_version = get_last_installed_version()
+        self.settings_btn_red_dot = False
+
+        self.schedule = None
+        self.schedule_timer = QtCore.QTimer(self)
+        self.schedule_timer.timeout.connect(self.check_schedule)
+
+        self.silent_workers = []
 
         self.init_ui()
+        self.init_tray()
+
+        self.schedule = get_schedule_config()
+        if self.schedule:
+            self.schedule_timer.start(60000)
 
         if not get_update_available():
             QtCore.QTimer.singleShot(2000, self.check_updates_silent)
@@ -68,28 +83,50 @@ class MainWindow(QMainWindow):
         self.backup_btn.setIcon(QIcon(str(resource_path("backup_icon.png"))))
         self.restore_btn = QPushButton("Restore")
         self.restore_btn.setIcon(QIcon(str(resource_path("restore_icon.png"))))
+        self.schedule_btn = QPushButton("Schedule")
+        self.schedule_btn.setIcon(QIcon(str(resource_path("schedule_icon.png"))))
         self.settings_btn = QPushButton("Settings")
         self.settings_btn.setIcon(QIcon(str(resource_path("settings_icon.png"))))
-        self.settings_btn_red_dot = False  # Flag for red dot
 
-        for btn in (self.backup_btn, self.restore_btn, self.settings_btn):
+        for btn in (self.backup_btn, self.restore_btn, self.schedule_btn, self.settings_btn):
             btn.setIconSize(QtCore.QSize(20, 20))
             btn.setMinimumHeight(45)
             btn.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
 
         outer.addWidget(self.backup_btn)
         outer.addWidget(self.restore_btn)
+        outer.addWidget(self.schedule_btn)
         outer.addWidget(self.settings_btn)
 
         container = QWidget()
         container.setLayout(outer)
         self.setCentralWidget(container)
 
-        self.backup_btn.clicked.connect(self.run_backup)
+        self.backup_btn.clicked.connect(lambda: self.run_backup(silent=False))
         self.restore_btn.clicked.connect(self.run_restore)
+        self.schedule_btn.clicked.connect(self.open_schedule)
         self.settings_btn.clicked.connect(self.open_settings)
 
         self.apply_theme()
+
+    def init_tray(self):
+        self.tray = QSystemTrayIcon(QIcon(str(resource_path("icon.ico"))), self)
+        menu = QMenu()
+
+        show_action = menu.addAction("Show")
+        show_action.triggered.connect(self.show)
+
+        backup_action = menu.addAction("Run Backup Now")
+        backup_action.triggered.connect(lambda: self.run_backup(silent=True))
+
+        sched_action = menu.addAction("Schedule Backup…")
+        sched_action.triggered.connect(self.open_schedule)
+
+        exit_action = menu.addAction("Exit")
+        exit_action.triggered.connect(QtWidgets.QApplication.quit)
+
+        self.tray.setContextMenu(menu)
+        self.tray.show()
 
     def button_style(self):
         return f"""
@@ -109,7 +146,7 @@ class MainWindow(QMainWindow):
     def apply_theme(self):
         self.setStyleSheet(f"background-color: {self.theme.bg}; color: {self.theme.fg};")
         self.centralWidget().setStyleSheet(f"background-color: {self.theme.bg}; color: {self.theme.fg};")
-        for btn in (self.backup_btn, self.restore_btn, self.settings_btn):
+        for btn in (self.backup_btn, self.restore_btn, self.schedule_btn, self.settings_btn):
             btn.setStyleSheet(self.button_style())
 
     def paintEvent(self, event):
@@ -144,31 +181,50 @@ class MainWindow(QMainWindow):
                 pass
         threading.Thread(target=run_check, daemon=True).start()
 
-    def run_backup(self):
+    def run_backup(self, silent=False):
         game = self.game_combo.currentText()
         folder = get_default_backup_path(game)
+
         if not folder or not Path(folder).exists():
+            if silent:
+                self.show_tray_notification("Scheduled backup skipped", f"No folder set for {game}")
+                print(f"[Scheduled Backup] No folder set for {game}, skipping.")
+                return
             folder = QFileDialog.getExistingDirectory(self, f"Select {game} Backup Destination")
             if not folder:
                 return
             save_default_backup_path(game, folder)
 
-        dialog = ProgressDialog(f"Backup in Progress — {game}", self.theme)
-        worker = BackupWorker(dialog, folder, game)
-        dialog.worker = worker
+        if silent:
+            worker = BackupWorker(dialog=None, backup_folder=folder, game_name=game, silent=True)
+            self.silent_workers.append(worker)
 
-        def backup_done():
-            QMessageBox.information(self, "Backup Complete", f"Your {game} backup has been created successfully.")
-            dialog.accept()
-
-        if hasattr(worker, "cleanup_done_signal"):
             worker.cleanup_done_signal.connect(
-                lambda summary: QMessageBox.information(self, "Cleanup Complete", summary)
+                lambda summary: self.show_tray_notification(f"{game} Backup Complete", summary)
             )
+            worker.finished.connect(lambda: self.silent_workers.remove(worker))
+            worker.start()
+        else:
+            dialog = ProgressDialog(f"Backup in Progress — {game}", self.theme)
+            worker = BackupWorker(dialog, folder, game, silent=False)
+            dialog.worker = worker
 
-        worker.done_signal.connect(backup_done)
-        worker.start()
-        dialog.exec()
+            def backup_done():
+                QMessageBox.information(self, "Backup Complete", f"Your {game} backup has been created successfully.")
+                dialog.accept()
+
+            if hasattr(worker, "cleanup_done_signal"):
+                worker.cleanup_done_signal.connect(
+                    lambda summary: QMessageBox.information(self, "Cleanup Complete", summary)
+                )
+
+            worker.done_signal.connect(backup_done)
+            worker.start()
+            dialog.exec()
+
+    def show_tray_notification(self, title, message):
+        if self.tray:
+            self.tray.showMessage(title, message, QSystemTrayIcon.Information, 10000)
 
     def run_restore(self):
         game = self.game_combo.currentText()
@@ -221,3 +277,33 @@ class MainWindow(QMainWindow):
         if settings.exec() == QDialog.Accepted:
             self.apply_theme()
         self.hide_settings_red_dot()
+
+    def open_schedule(self):
+        dlg = ScheduleDialog(self)
+        if dlg.exec() == QDialog.Accepted:
+            self.schedule = dlg.get_schedule()
+            save_schedule_config(self.schedule)
+            self.schedule_timer.start(60000)
+            QMessageBox.information(self, "Scheduled", "Backup schedule set successfully.")
+            self.hide()
+
+    def check_schedule(self):
+        if not self.schedule:
+            return
+        now = QtCore.QTime.currentTime()
+
+        if self.schedule["mode"] == "interval":
+            last = getattr(self, "_last_backup_time", None)
+            interval_seconds = self.schedule.get("hours", 0) * 3600
+            if not last or last.secsTo(now) >= interval_seconds:
+                self._last_backup_time = now
+                self.run_backup(silent=True)
+
+        elif self.schedule["mode"] == "daily":
+            scheduled_hour, scheduled_minute = self.schedule.get("time", (0, 0))
+            if now.hour() == scheduled_hour and now.minute() == scheduled_minute:
+                last_day = getattr(self, "_last_backup_day", None)
+                today_str = QtCore.QDate.currentDate().toString("yyyyMMdd")
+                if last_day != today_str:
+                    self._last_backup_day = today_str
+                    self.run_backup(silent=True)

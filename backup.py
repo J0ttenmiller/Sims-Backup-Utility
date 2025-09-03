@@ -23,27 +23,34 @@ class BackupWorker(QThread):
     max_signal = Signal(int)
     done_signal = Signal()
     cleanup_done_signal = Signal(str)
+    error_signal = Signal(str)
 
-    def __init__(self, dialog, backup_folder, game_name: str):
+    def __init__(self, dialog=None, backup_folder=None, game_name: str = "", silent=False):
         super().__init__()
         self.dialog = dialog
         self.game_name = game_name
         self.game_key = self.game_name.strip().lower()
-        self.backup_folder = Path(backup_folder).resolve()
+        self.backup_folder = Path(backup_folder).resolve() if backup_folder else None
         self.cancel_requested = False
+        self.silent = silent
 
-        self.log_signal.connect(dialog.log)
-        self.progress_signal.connect(dialog.update_progress)
-        self.max_signal.connect(dialog.set_max)
+        if dialog and not silent:
+            self.log_signal.connect(dialog.log)
+            self.progress_signal.connect(dialog.update_progress)
+            self.max_signal.connect(dialog.set_max)
 
     def run(self):
         try:
             self.log(f"Starting backup for {self.game_name}...")
-            self.backup_folder.mkdir(parents=True, exist_ok=True)
+
+            if self.backup_folder:
+                self.backup_folder.mkdir(parents=True, exist_ok=True)
 
             game_root = get_game_folder(self.game_name)
             if not game_root.exists():
-                self.log(f"[ERROR] {self.game_name} folder not found: {game_root}")
+                error_msg = f"[ERROR] {self.game_name} folder not found: {game_root}"
+                self.log(error_msg)
+                self.error_signal.emit(error_msg)
                 return
 
             include_dirs = INCLUDE_MAP.get(self.game_key, [])
@@ -62,11 +69,14 @@ class BackupWorker(QThread):
                         files_to_backup.append((f, game_root))
 
             if not files_to_backup:
-                self.log("[ERROR] No files found to back up.")
+                error_msg = "[ERROR] No files found to back up."
+                self.log(error_msg)
+                self.error_signal.emit(error_msg)
                 return
 
-            self.progress_signal.emit(0)
-            self.max_signal.emit(len(files_to_backup))
+            if not self.silent:
+                self.progress_signal.emit(0)
+                self.max_signal.emit(len(files_to_backup))
 
             backup_name = f"{self.game_key.replace(' ', '_')}_backup_{datetime.now():%Y%m%d_%H%M%S}.zip"
             backup_path = self.backup_folder / backup_name
@@ -80,17 +90,21 @@ class BackupWorker(QThread):
                     arcname = file_path.relative_to(root)
                     zipf.write(file_path, arcname)
                     self.log(f"Added: {arcname}")
-                    self.progress_signal.emit(step)
+                    if not self.silent:
+                        self.progress_signal.emit(step)
 
             self.log("Backup complete.")
             self.cleanup_folders()
             self.done_signal.emit()
 
         except Exception as e:
-            self.log(f"[ERROR] Backup failed: {e}")
+            error_msg = f"[ERROR] Backup failed: {e}"
+            self.log(error_msg)
+            self.error_signal.emit(error_msg)
 
     def log(self, message: str):
-        self.log_signal.emit(message)
+        if not self.silent and self.dialog:
+            self.log_signal.emit(message)
         write_log_file(message)
 
     def cleanup_folders(self):
