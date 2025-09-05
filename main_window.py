@@ -5,9 +5,10 @@ import requests
 from PySide6 import QtCore, QtWidgets
 from PySide6.QtWidgets import (
     QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout, QWidget,
-    QFileDialog, QDialog, QMessageBox, QComboBox, QLabel, QSystemTrayIcon, QMenu
+    QFileDialog, QDialog, QMessageBox, QComboBox, QLabel,
+    QSystemTrayIcon, QMenu
 )
-from PySide6.QtGui import QIcon, QPainter, QColor
+from PySide6.QtGui import QIcon, QPainter, QColor, QAction
 
 from progress_dialog import ProgressDialog
 from backup import BackupWorker
@@ -20,12 +21,14 @@ from config_utils import (
     get_last_installed_version,
     get_last_selected_game, save_last_selected_game,
     get_schedule_config, save_schedule_config,
+    get_minimize_to_tray
 )
 
 GITHUB_USER = "J0ttenmiller"
 GITHUB_REPO = "Sims-Backup-Utility"
 
 GAMES = ["Sims 4", "Sims 3", "Sims Medieval", "MySims", "MySims Kingdom"]
+
 
 def resource_path(relative_path: str) -> Path:
     try:
@@ -113,20 +116,52 @@ class MainWindow(QMainWindow):
         self.tray = QSystemTrayIcon(QIcon(str(resource_path("icon.ico"))), self)
         menu = QMenu()
 
-        show_action = menu.addAction("Show")
-        show_action.triggered.connect(self.show)
+        show_action = QAction("Show", self)
+        show_action.triggered.connect(self.restore_from_tray)
+        menu.addAction(show_action)
 
-        backup_action = menu.addAction("Run Backup Now")
+        backup_action = QAction("Run Backup Now", self)
         backup_action.triggered.connect(lambda: self.run_backup(silent=True))
+        menu.addAction(backup_action)
 
-        sched_action = menu.addAction("Schedule Backup…")
+        sched_action = QAction("Schedule Backup…", self)
         sched_action.triggered.connect(self.open_schedule)
+        menu.addAction(sched_action)
 
-        exit_action = menu.addAction("Exit")
-        exit_action.triggered.connect(QtWidgets.QApplication.quit)
+        exit_action = QAction("Exit", self)
+        exit_action.triggered.connect(self.exit_app)
+        menu.addAction(exit_action)
 
         self.tray.setContextMenu(menu)
         self.tray.show()
+
+    def minimize_to_tray(self):
+        self.hide()
+        if self.tray:
+            self.tray.showMessage(
+                "Sims Backup Utility",
+                "Running in the background. Right-click the tray icon for options.",
+                QSystemTrayIcon.Information,
+                4000
+            )
+
+    def restore_from_tray(self):
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def exit_app(self):
+        if get_minimize_to_tray():
+            self.minimize_to_tray()
+        else:
+            QtWidgets.QApplication.quit()
+
+    def closeEvent(self, event):
+        if get_minimize_to_tray():
+            event.ignore()
+            self.minimize_to_tray()
+        else:
+            event.accept()
 
     def button_style(self):
         return f"""
@@ -198,7 +233,6 @@ class MainWindow(QMainWindow):
         if silent:
             worker = BackupWorker(dialog=None, backup_folder=folder, game_name=game, silent=True)
             self.silent_workers.append(worker)
-
             worker.cleanup_done_signal.connect(
                 lambda summary: self.show_tray_notification(f"{game} Backup Complete", summary)
             )
@@ -221,10 +255,6 @@ class MainWindow(QMainWindow):
             worker.done_signal.connect(backup_done)
             worker.start()
             dialog.exec()
-
-    def show_tray_notification(self, title, message):
-        if self.tray:
-            self.tray.showMessage(title, message, QSystemTrayIcon.Information, 10000)
 
     def run_restore(self):
         game = self.game_combo.currentText()
@@ -307,3 +337,7 @@ class MainWindow(QMainWindow):
                 if last_day != today_str:
                     self._last_backup_day = today_str
                     self.run_backup(silent=True)
+
+    def show_tray_notification(self, title, message):
+        if self.tray:
+            self.tray.showMessage(title, message, QSystemTrayIcon.Information, 10000)

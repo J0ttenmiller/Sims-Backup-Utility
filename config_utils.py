@@ -18,12 +18,11 @@ def ensure_config():
             "max_backups": "5",
             "theme": "dark",
             "last_selected_game": "Sims 4",
+            "minimize_to_tray": "false",
         }
         for g in GAMES:
             key = game_key(g)
-            config[f"Path:{key}"] = {
-                "default_backup_path": ""
-            }
+            config[f"Path:{key}"] = {"default_backup_path": ""}
         config["General"] = {
             "update_available": "false",
             "last_installed_version": "1.0.0"
@@ -64,6 +63,12 @@ def get_theme_mode():
 
 def save_theme_mode(mode: str):
     set_config_value("Settings", "theme", mode)
+
+def get_minimize_to_tray() -> bool:
+    return get_config_value("Settings", "minimize_to_tray", "false").lower() == "true"
+
+def save_minimize_to_tray(flag: bool):
+    set_config_value("Settings", "minimize_to_tray", str(flag).lower())
 
 def get_update_available():
     return get_config_value("General", "update_available", "false").lower() == "true"
