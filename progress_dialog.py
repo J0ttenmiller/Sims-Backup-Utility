@@ -124,7 +124,7 @@ class ProgressDialog(QDialog):
                     background-color: #222;
                 }
                 QProgressBar::chunk {
-                    background-color: #4caf50;
+                    background-color: #66bb46;
                     width: 20px;
                 }
             """
@@ -135,7 +135,7 @@ class ProgressDialog(QDialog):
                 background-color: #eee;
             }
             QProgressBar::chunk {
-                background-color: #2196f3;
+                background-color: #299ed9;
                 width: 20px;
             }
         """
