@@ -102,11 +102,11 @@ class SettingsWindow(QDialog):
 
     def button_style(self):
         if self.theme.mode == "dark":
-            bg = "#2e7d32"
+            bg = "#66bb46"
             hover = "#1b5e20"
         else:
-            bg = "#1976d2"
-            hover = "#115293"
+            bg = "#299ed9"
+            hover = "#315dab"
         return f"""
             QPushButton {{
                 background-color: {bg};
