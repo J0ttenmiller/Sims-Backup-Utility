@@ -129,7 +129,7 @@ class MainWindow(QMainWindow):
         menu.addAction(sched_action)
 
         exit_action = QAction("Exit", self)
-        exit_action.triggered.connect(self.exit_app)
+        exit_action.triggered.connect(self.exit_from_tray)
         menu.addAction(exit_action)
 
         self.tray.setContextMenu(menu)
@@ -150,11 +150,9 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
-    def exit_app(self):
-        if get_minimize_to_tray():
-            self.minimize_to_tray()
-        else:
-            QtWidgets.QApplication.quit()
+    def exit_from_tray(self):
+        self.tray.hide()
+        QtWidgets.QApplication.quit()
 
     def closeEvent(self, event):
         if get_minimize_to_tray():
