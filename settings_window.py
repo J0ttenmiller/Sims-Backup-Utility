@@ -10,7 +10,7 @@ from config_utils import (
     GAMES,
     get_minimize_to_tray, save_minimize_to_tray
 )
-from updater import check_for_updates_async
+from updater import check_updates
 from startup import enable_startup, disable_startup, is_startup_enabled
 from toggle import ToggleSwitch
 from theme import Theme
@@ -25,6 +25,9 @@ class SettingsWindow(QDialog):
         self.setFixedSize(460, 420)
         self.setStyleSheet(f"background-color: {self.theme.bg}; color: {self.theme.fg};")
         self.init_ui()
+
+        if self.main_window:
+            self.main_window.hide_settings_red_dot()
 
     def init_ui(self):
         layout = QVBoxLayout()
@@ -139,7 +142,7 @@ class SettingsWindow(QDialog):
             self.update_btn.setStyleSheet(self.theme.button_style())
 
     def run_update_check(self):
-        def finished():
+        def finished(latest_version=None, installed_version=None, update_available=None):
             self.version_label.setText(f"Current Version: {get_last_installed_version()}")
             self.refresh_update_status()
             if self.main_window:
@@ -147,9 +150,8 @@ class SettingsWindow(QDialog):
                     self.main_window.show_settings_red_dot()
                 else:
                     self.main_window.hide_settings_red_dot()
-        check_for_updates_async(self, finished_callback=finished)
-        set_update_available(False)
-        self.refresh_update_status()
+
+        check_updates(callback=finished, silent=False, parent=self)
 
     def save_settings(self):
         val = self.max_combo.currentText()
