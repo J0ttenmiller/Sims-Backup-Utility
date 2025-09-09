@@ -1,5 +1,9 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QProgressBar, QPushButton, QPlainTextEdit, QGraphicsOpacityEffect
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QLabel, QProgressBar, QPushButton,
+    QPlainTextEdit, QGraphicsOpacityEffect
+)
 from PySide6.QtCore import Qt, QPropertyAnimation, QSize, QParallelAnimationGroup
+from PySide6.QtGui import QTextCursor
 from theme import Theme
 
 
@@ -40,6 +44,7 @@ class ProgressDialog(QDialog):
         self.details_box.setStyleSheet(
             f"background-color: {theme.text_bg}; color: {theme.text_fg};"
         )
+        self.theme.apply_scrollbar_style(self.details_box)
         self.details_box.setMinimumHeight(200)
         self.details_box.hide()
 
@@ -135,6 +140,8 @@ class ProgressDialog(QDialog):
         if message != self._last_log_message:
             self.log_label.setText(message)
             self.details_box.appendPlainText(message)
+            self.details_box.moveCursor(QTextCursor.End)
+            self.details_box.ensureCursorVisible()
             self._last_log_message = message
 
     def update_progress(self, value: int):

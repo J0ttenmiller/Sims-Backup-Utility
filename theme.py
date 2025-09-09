@@ -95,3 +95,40 @@ class Theme:
                 height: 0px;
             }}
         """)
+
+    def apply_scrollbar_style(self, widget):
+        hl_color = self.highlight
+        fg_color = self.fg
+        bg_color = self.bg
+        widget.setStyleSheet(f"""
+            QScrollBar:vertical {{
+                border: none;
+                background: {bg_color};
+                width: 10px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {hl_color};
+                min-height: 20px;
+                border-radius: 4px;
+            }}
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+            QScrollBar:horizontal {{
+                border: none;
+                background: {bg_color};
+                height: 10px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {hl_color};
+                min-width: 20px;
+                border-radius: 4px;
+            }}
+            QScrollBar::add-line:horizontal,
+            QScrollBar::sub-line:horizontal {{
+                width: 0px;
+            }}
+        """)

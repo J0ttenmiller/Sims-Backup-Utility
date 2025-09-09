@@ -2,6 +2,7 @@ from PySide6.QtCore import QThread, Signal
 from pathlib import Path
 import shutil
 import zipfile
+import filecmp
 
 from paths import get_game_folder, APPDATA_DIR
 from config_utils import write_log_file
@@ -79,29 +80,63 @@ class RestoreWorker(QThread):
                 game_root.mkdir(parents=True, exist_ok=True)
 
             include_dirs = INCLUDE_MAP.get(self.game_key, [])
+
+            total_files = 0
+            for sub in include_dirs:
+                src = temp_extract_folder / sub
+                if src.exists():
+                    total_files += sum(1 for _ in src.rglob('*') if _.is_file())
+            if total_files == 0:
+                total_files = sum(1 for _ in temp_extract_folder.rglob('*') if _.is_file())
+            self.progress_signal.emit(0)
+            self.max_signal.emit(total_files)
+            self._copied_files = 0
+
+            def copy_with_smart_delete(src: Path, dst: Path):
+                if src.is_dir():
+                    dst.mkdir(parents=True, exist_ok=True)
+                    for item in src.iterdir():
+                        target = dst / item.name
+                        if item.is_dir():
+                            copy_with_smart_delete(item, target)
+                        else:
+                            if not target.exists() or not filecmp.cmp(item, target, shallow=False):
+                                if target.exists():
+                                    target.unlink()
+                                    self.log(f"Removed existing file: {target.relative_to(game_root)}")
+                                shutil.copy2(item, target)
+                                self.log(f"Copied file: {target.relative_to(game_root)}")
+                            else:
+                                self.log(f"Skipped unchanged file: {target.relative_to(game_root)}")
+                            self._copied_files += 1
+                            self.progress_signal.emit(self._copied_files)
+                else:
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    if not dst.exists() or not filecmp.cmp(src, dst, shallow=False):
+                        if dst.exists():
+                            dst.unlink()
+                            self.log(f"Removed existing file: {dst.relative_to(game_root)}")
+                        shutil.copy2(src, dst)
+                        self.log(f"Copied file: {dst.relative_to(game_root)}")
+                    else:
+                        self.log(f"Skipped unchanged file: {dst.relative_to(game_root)}")
+                    self._copied_files += 1
+                    self.progress_signal.emit(self._copied_files)
+
             restored_any = False
+
             for sub in include_dirs:
                 src = temp_extract_folder / sub
                 dst = game_root / sub
                 if src.exists():
-                    if src.is_dir():
-                        shutil.copytree(src, dst, dirs_exist_ok=True)
-                    else:
-                        dst.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(src, dst)
-                    self.log(f"Restored: {dst.relative_to(game_root)}")
+                    copy_with_smart_delete(src, dst)
                     restored_any = True
 
             if not restored_any:
                 for item in temp_extract_folder.iterdir():
                     src = item
                     dst = game_root / item.name
-                    if src.is_dir():
-                        shutil.copytree(src, dst, dirs_exist_ok=True)
-                    else:
-                        dst.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(src, dst)
-                    self.log(f"Restored: {dst.relative_to(game_root)}")
+                    copy_with_smart_delete(src, dst)
 
             shutil.rmtree(temp_extract_folder, ignore_errors=True)
             self.log("Restore complete.")
