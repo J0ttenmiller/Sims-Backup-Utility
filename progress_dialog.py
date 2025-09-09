@@ -1,12 +1,10 @@
-from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QLabel, QProgressBar, QPushButton,
-    QPlainTextEdit, QGraphicsOpacityEffect
-)
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QProgressBar, QPushButton, QPlainTextEdit, QGraphicsOpacityEffect
 from PySide6.QtCore import Qt, QPropertyAnimation, QSize, QParallelAnimationGroup
+from theme import Theme
 
 
 class ProgressDialog(QDialog):
-    def __init__(self, title, theme):
+    def __init__(self, title, theme: Theme):
         super().__init__()
         self.setWindowTitle(title)
         self.theme = theme
@@ -29,19 +27,18 @@ class ProgressDialog(QDialog):
         layout.addWidget(self.percent_label)
 
         self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.setStyleSheet(self.button_style())
+        self.cancel_btn.setStyleSheet(self.theme.button_style())
         self.cancel_btn.clicked.connect(self.cancel)
         layout.addWidget(self.cancel_btn)
 
         self.toggle_btn = QPushButton("Show Details ▼")
-        self.toggle_btn.setStyleSheet(self.button_style())
+        self.toggle_btn.setStyleSheet(self.theme.button_style())
         self.toggle_btn.clicked.connect(self.toggle_details)
         layout.addWidget(self.toggle_btn)
 
         self.details_box = QPlainTextEdit(readOnly=True)
         self.details_box.setStyleSheet(
-            "background-color: #111; color: white;" if theme.mode == "dark"
-            else "background-color: #fff; color: black;"
+            f"background-color: {theme.text_bg}; color: {theme.text_fg};"
         )
         self.details_box.setMinimumHeight(200)
         self.details_box.hide()
@@ -54,7 +51,6 @@ class ProgressDialog(QDialog):
         layout.setStretchFactor(self.details_box, 1)
 
         self.setLayout(layout)
-
         self.worker = None
         self.details_visible = False
         self._anim_group = None
@@ -74,7 +70,6 @@ class ProgressDialog(QDialog):
         self.details_visible = not self.details_visible
         collapsed_height = self._calc_height_with_details(False)
         expanded_height = self._calc_height_with_details(True)
-
         target_height = expanded_height if self.details_visible else collapsed_height
         target_height = max(target_height, self.minimumHeight())
 
@@ -110,47 +105,29 @@ class ProgressDialog(QDialog):
             anim_group.finished.connect(lambda: self.details_box.hide())
 
         anim_group.addAnimation(anim_fade)
-
         anim_group.start()
         self._anim_group = anim_group
         self.log_label.setVisible(not self.details_visible)
 
     def progress_bar_style(self):
         if self.theme.mode == "dark":
-            return """
-                QProgressBar {
-                    border: 2px solid #555;
-                    border-radius: 5px;
-                    background-color: #222;
-                }
-                QProgressBar::chunk {
-                    background-color: #66bb46;
-                    width: 20px;
-                }
-            """
-        return """
-            QProgressBar {
-                border: 2px solid #aaa;
-                border-radius: 5px;
-                background-color: #eee;
-            }
-            QProgressBar::chunk {
-                background-color: #299ed9;
-                width: 20px;
-            }
-        """
+            bg_color = self.theme.text_bg
+            chunk_color = self.theme.highlight
+            border_color = "#555"
+        else:
+            bg_color = self.theme.text_bg
+            chunk_color = self.theme.highlight
+            border_color = "#aaa"
 
-    def button_style(self):
         return f"""
-            QPushButton {{
-                background-color: {self.theme.button_bg};
-                color: {self.theme.button_fg};
-                font-weight: bold;
-                border-radius: 8px;
-                height: 30px;
+            QProgressBar {{
+                border: 2px solid {border_color};
+                border-radius: 5px;
+                background-color: {bg_color};
             }}
-            QPushButton:hover {{
-                background-color: {self.theme.button_active};
+            QProgressBar::chunk {{
+                background-color: {chunk_color};
+                width: 20px;
             }}
         """
 

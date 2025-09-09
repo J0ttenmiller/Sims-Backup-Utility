@@ -5,7 +5,6 @@ from PySide6.QtWidgets import (
 from config_utils import (
     get_max_backups, save_max_backups,
     get_default_backup_path, save_default_backup_path,
-    save_theme_mode, get_theme_mode,
     get_update_available, set_update_available,
     get_last_installed_version,
     GAMES,
@@ -14,16 +13,17 @@ from config_utils import (
 from updater import check_for_updates_async
 from startup import enable_startup, disable_startup, is_startup_enabled
 from toggle import ToggleSwitch
+from theme import Theme
 
 
 class SettingsWindow(QDialog):
-    def __init__(self, theme, main_window=None):
+    def __init__(self, theme: Theme = None, main_window=None):
         super().__init__()
-        self.theme = theme
+        self.theme = theme or Theme()
         self.main_window = main_window
         self.setWindowTitle("Settings")
         self.setFixedSize(460, 420)
-        self.setStyleSheet(f"background-color: {theme.bg}; color: {theme.fg};")
+        self.setStyleSheet(f"background-color: {self.theme.bg}; color: {self.theme.fg};")
         self.init_ui()
 
     def init_ui(self):
@@ -44,7 +44,7 @@ class SettingsWindow(QDialog):
         l1 = QHBoxLayout()
         l1.setSpacing(8)
         lbl = QLabel("Maximum number of backups to keep:")
-        lbl.setStyleSheet("margin: 0;")
+        lbl.setStyleSheet(f"margin: 0; color: {self.theme.fg};")
         self.max_combo = QComboBox()
         self.max_combo.addItems(["Unlimited"] + [str(i) for i in range(1, 100)])
         current = get_max_backups()
@@ -53,8 +53,10 @@ class SettingsWindow(QDialog):
         l1.addWidget(self.max_combo, 1)
         layout.addLayout(l1)
 
+        self.theme.apply_combo_scrollbar_style(self.max_combo)
+
         self.version_label = QLabel(f"Current Version: {get_last_installed_version()}")
-        self.version_label.setStyleSheet("font-size: 13px; margin: 0;")
+        self.version_label.setStyleSheet(f"font-size: 13px; margin: 0; color: {self.theme.fg};")
         layout.addWidget(self.version_label)
 
         layout.addWidget(QLabel("Per-game default backup folders:"))
@@ -65,24 +67,24 @@ class SettingsWindow(QDialog):
         row = 0
         for g in GAMES:
             lab = QLabel(g + ":")
-            lab.setStyleSheet("margin: 0;")
+            lab.setStyleSheet(f"margin: 0; color: {self.theme.fg};")
             grid.addWidget(lab, row, 0)
 
             p = get_default_backup_path(g) or "Not set"
             path_label = QLabel(p)
-            path_label.setStyleSheet("margin: 0;")
+            path_label.setStyleSheet(f"margin: 0; color: {self.theme.fg};")
             grid.addWidget(path_label, row, 1)
             self.path_labels[g] = path_label
 
             btn = QPushButton("Browse")
-            btn.setStyleSheet(self.button_style())
+            btn.setStyleSheet(self.theme.button_style())
             btn.clicked.connect(lambda _, game=g: self.choose_path(game))
             grid.addWidget(btn, row, 2)
             row += 1
         layout.addLayout(grid)
 
         self.theme_btn = QPushButton(f"Switch to {'Light' if self.theme.mode == 'dark' else 'Dark'} Mode")
-        self.theme_btn.setStyleSheet(self.button_style())
+        self.theme_btn.setStyleSheet(self.theme.button_style())
         self.theme_btn.clicked.connect(self.toggle_theme)
         layout.addWidget(self.theme_btn)
 
@@ -92,33 +94,13 @@ class SettingsWindow(QDialog):
         self.update_btn.clicked.connect(self.run_update_check)
         row2.addWidget(self.update_btn)
         save_btn = QPushButton("Save")
-        save_btn.setStyleSheet(self.button_style())
+        save_btn.setStyleSheet(self.theme.button_style())
         save_btn.clicked.connect(self.save_settings)
         row2.addWidget(save_btn)
         layout.addLayout(row2)
 
         self.setLayout(layout)
         self.refresh_update_status()
-
-    def button_style(self):
-        if self.theme.mode == "dark":
-            bg = "#66bb46"
-            hover = "#1b5e20"
-        else:
-            bg = "#299ed9"
-            hover = "#315dab"
-        return f"""
-            QPushButton {{
-                background-color: {bg};
-                color: white;
-                font-weight: bold;
-                border-radius: 8px;
-                height: 30px;
-            }}
-            QPushButton:hover {{
-                background-color: {hover};
-            }}
-        """
 
     def toggle_startup(self, checked: bool):
         if checked:
@@ -134,22 +116,27 @@ class SettingsWindow(QDialog):
 
     def toggle_theme(self):
         self.theme.toggle()
-        save_theme_mode(self.theme.mode)
         self.setStyleSheet(f"background-color: {self.theme.bg}; color: {self.theme.fg};")
-        self.theme_btn.setStyleSheet(self.button_style())
-        self.theme_btn.setText(f"Switch to {'Light' if self.theme.mode == 'dark' else 'Dark'} Mode")
+        self.theme_btn.setStyleSheet(self.theme.button_style())
+
+        self.startup_toggle.theme = self.theme
+        self.tray_toggle.theme = self.theme
+        self.startup_toggle.update()
+        self.tray_toggle.update()
+
+        self.theme.apply_combo_scrollbar_style(self.max_combo)
         self.refresh_update_status()
 
     def refresh_update_status(self):
         if get_update_available():
             self.update_btn.setText("Update Available!")
-            self.update_btn.setStyleSheet("""
-                QPushButton { background-color: #ff9800; color: white; border-radius: 8px; height: 30px; }
-                QPushButton:hover { background-color: #f57c00; }
+            self.update_btn.setStyleSheet(f"""
+                QPushButton {{ background-color: #ff9800; color: white; border-radius: 8px; height: 30px; }}
+                QPushButton:hover {{ background-color: #f57c00; }}
             """)
         else:
             self.update_btn.setText("Check for Updates")
-            self.update_btn.setStyleSheet(self.button_style())
+            self.update_btn.setStyleSheet(self.theme.button_style())
 
     def run_update_check(self):
         def finished():

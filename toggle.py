@@ -1,18 +1,19 @@
 from PySide6.QtWidgets import QWidget
 from PySide6.QtCore import Qt, Property, QPropertyAnimation, QRect, Signal
 from PySide6.QtGui import QPainter, QColor, QFont
+from theme import Theme
 
 
 class ToggleSwitch(QWidget):
     stateChanged = Signal(bool)
 
-    def __init__(self, label_text="", theme=None, parent=None):
+    def __init__(self, label_text="", theme: Theme = None, parent=None):
         super().__init__(parent)
         self.setFixedHeight(32)
         self._checked = False
         self._circle_pos = 0
         self.label_text = label_text
-        self.theme = theme
+        self.theme = theme or Theme()
 
         self.track_width = 40
         self.track_height = 20
@@ -27,11 +28,7 @@ class ToggleSwitch(QWidget):
         self.anim.stop()
 
         track_x = self.width() - self.track_width - self.padding
-        if checked:
-            end_val = track_x + (self.track_width - self.knob_diameter - 2)
-        else:
-            end_val = track_x + 2
-
+        end_val = track_x + (self.track_width - self.knob_diameter - 2) if checked else track_x + 2
         self._circle_pos = end_val
         self.update()
 
@@ -50,10 +47,7 @@ class ToggleSwitch(QWidget):
 
     def resizeEvent(self, event):
         track_x = self.width() - self.track_width - self.padding
-        if self._checked:
-            self._circle_pos = track_x + (self.track_width - self.knob_diameter - 2)
-        else:
-            self._circle_pos = track_x + 2
+        self._circle_pos = track_x + (self.track_width - self.knob_diameter - 2) if self._checked else track_x + 2
         super().resizeEvent(event)
 
     def get_circle_pos(self):
@@ -73,16 +67,16 @@ class ToggleSwitch(QWidget):
         track_y = (self.height() - self.track_height) // 2
         track_rect = QRect(track_x, track_y, self.track_width, self.track_height)
 
-        if self.theme and self.theme.mode == "dark":
+        if self.theme.mode == "dark":
             track_off = QColor("#555")
-            track_on = QColor("#2e7d32")
+            track_on = QColor(self.theme.highlight)
             knob = QColor("#ddd")
             text_color = QColor(self.theme.fg)
         else:
             track_off = QColor("#ccc")
-            track_on = QColor("#1976d2")
+            track_on = QColor(self.theme.highlight)
             knob = QColor("#fff")
-            text_color = QColor(self.theme.fg if self.theme else "#000")
+            text_color = QColor(self.theme.fg)
 
         painter.setBrush(track_on if self._checked else track_off)
         painter.setPen(Qt.NoPen)

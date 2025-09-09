@@ -1,4 +1,5 @@
 from config_utils import get_config, CONFIG_PATH
+from PySide6.QtWidgets import QComboBox
 
 class Theme:
     def __init__(self, mode=None):
@@ -32,6 +33,7 @@ class Theme:
             self.text_bg = "#1e1e1e"
             self.text_fg = "#ffffff"
             self.insert_bg = "#ffffff"
+            self.highlight = "#66bb46"
         else:
             self.bg = "#f0f0f0"
             self.fg = "#000000"
@@ -41,3 +43,55 @@ class Theme:
             self.text_bg = "#ffffff"
             self.text_fg = "#000000"
             self.insert_bg = "#000000"
+            self.highlight = "#299ed9"
+
+    def button_style(self):
+        return f"""
+            QPushButton {{
+                background-color: {self.button_bg};
+                color: {self.button_fg};
+                font-weight: bold;
+                border-radius: 8px;
+                height: 30px;
+            }}
+            QPushButton:hover {{
+                background-color: {self.button_active};
+            }}
+        """
+
+    def apply_combo_scrollbar_style(self, combo: QComboBox):
+        hl_color = self.highlight
+        fg_color = self.fg
+        bg_color = self.bg
+        combo.setStyleSheet(f"""
+            QComboBox QAbstractItemView {{
+                border: 1px solid #d0d0d0;
+                selection-background-color: {hl_color};
+                selection-color: white;
+                background-color: {bg_color};
+                color: {fg_color};
+                outline: none;
+            }}
+            QComboBox QAbstractItemView::item {{
+                padding: 4px 8px;
+            }}
+            QComboBox QAbstractItemView QScrollBar:vertical {{
+                border: none;
+                width: 10px;
+                margin: 0px;
+                background: none;
+            }}
+            QComboBox QAbstractItemView QScrollBar::groove:vertical {{
+                background: {bg_color};
+                border-radius: 4px;
+            }}
+            QComboBox QAbstractItemView QScrollBar::handle:vertical {{
+                background: {hl_color};
+                min-height: 20px;
+                border-radius: 4px;
+            }}
+            QComboBox QAbstractItemView QScrollBar::add-line:vertical,
+            QComboBox QAbstractItemView QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+        """)
