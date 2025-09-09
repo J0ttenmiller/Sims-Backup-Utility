@@ -25,7 +25,7 @@ class Theme:
 
     def update(self):
         if self.mode == "dark":
-            self.bg = "#2d2d2d"
+            self.bg = "#000000"
             self.fg = "#ffffff"
             self.button_bg = "#66bb46"
             self.button_fg = "#ffffff"
